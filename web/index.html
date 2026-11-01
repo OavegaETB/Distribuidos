@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculadora distribuida en Go</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%2300add8%27/%3E%3Ctext x=%2716%27 y=%2722%27 text-anchor=%27middle%27 font-family=%27Arial%27 font-weight=%27900%27 font-size=%2714%27 fill=%27%2304232c%27%3EGo%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* colores y variables */
+  :root {
+    --papel: #e9eff2;
+    --superficie: #ffffff;
+    --superficie-2: #f4f7f9;
+    --tinta: #10242e;
+    --tinta-suave: #4a5f6a;
+    --linea: #cfdbe1;
+    --go: #00add8;
+    --go-texto: #00708c;
+    --respuesta: #e9a514;
+    --respuesta-texto: #7a5200;
+    --ok: #17734a;
+    --error: #b3361f;
+    --sombra: 0 1px 2px rgba(16, 36, 46, .06), 0 12px 32px -12px rgba(16, 36, 46, .18);
+    --radio-grande: 20px;
+    --radio: 12px;
+    --fuente: "Archivo", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", Consolas, "Cascadia Mono", monospace;
+
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --t-presion: 160ms;
+    --t-estado: 200ms;
+    --t-indicador: 240ms;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --papel: #0c171d;
+      --superficie: #132630;
+      --superficie-2: #0f1f27;
+      --tinta: #e4edf1;
+      --tinta-suave: #9db1ba;
+      --linea: #24404d;
+      --go: #2cc3ea;
+      --go-texto: #5fd3f0;
+      --respuesta: #f2b33d;
+      --respuesta-texto: #f6c66a;
+      --ok: #4cc38a;
+      --error: #ff8a73;
+      --sombra: 0 1px 2px rgba(0, 0, 0, .3), 0 16px 40px -16px rgba(0, 0, 0, .6);
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; min-height: 100dvh; background: var(--papel); color: var(--tinta);
+    font-family: var(--fuente); font-size: 16px; line-height: 1.5;
+  }
+  .contenedor { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  @media (max-width: 600px) { .contenedor { padding: 0 16px; } }
+  :focus-visible { outline: 3px solid var(--go); outline-offset: 2px; border-radius: 6px; }
+  code, pre { font-family: var(--mono); }
+
+  /* encabezado */
+  header.contenedor { display: flex; align-items: center; gap: 14px; padding-top: 28px; padding-bottom: 20px; flex-wrap: wrap; }
+  .marca { display: flex; align-items: center; gap: 12px; margin-right: auto; }
+  .marca svg { flex: none; }
+  h1 { margin: 0; font-size: 20px; font-weight: 700; font-stretch: 112%; letter-spacing: -.01em; }
+  .marca p { margin: 0; font-size: 14px; color: var(--tinta-suave); }
+  .conexion {
+    display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px 7px 12px; border-radius: 999px;
+    background: var(--superficie); border: 1px solid var(--linea); font-size: 14px; color: var(--tinta-suave);
+    transition: color var(--t-estado) ease, border-color var(--t-estado) ease;
+  }
+  .conexion .luz { width: 9px; height: 9px; border-radius: 50%; background: var(--tinta-suave); transition: background-color var(--t-estado) ease, box-shadow var(--t-estado) ease; }
+  .conexion[data-estado="ok"] .luz { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); }
+  .conexion[data-estado="caido"] { color: var(--error); border-color: color-mix(in srgb, var(--error) 40%, var(--linea)); }
+  .conexion[data-estado="caido"] .luz { background: var(--error); }
+
+  /* formulario */
+  .banco {
+    background: var(--superficie); border-radius: var(--radio-grande); box-shadow: var(--sombra);
+    padding: 28px 32px 32px;
+  }
+  @media (max-width: 600px) { .banco { padding: 20px 16px 24px; border-radius: 16px; } }
+
+  .ecuacion { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 14px; align-items: end; }
+  @media (max-width: 820px) {
+    .ecuacion { grid-template-columns: 1fr 1fr; }
+    .ecuacion .operadores { grid-column: 1 / -1; order: -1; }
+    .ecuacion .calcular { grid-column: 1 / -1; }
+  }
+  .campo label, .operadores legend { display: block; font-size: 14px; line-height: 1.5; color: var(--tinta-suave); margin: 0 0 6px 2px; padding: 0; }
+  .campo input {
+    width: 100%; min-height: 64px; padding: 8px 16px; border-radius: var(--radio);
+    border: 1.5px solid var(--linea); background: var(--superficie-2); color: var(--tinta);
+    font: 700 32px/1 var(--fuente); font-stretch: 110%; font-variant-numeric: tabular-nums;
+    transition: border-color var(--t-estado) ease, background-color var(--t-estado) ease, box-shadow var(--t-estado) ease;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .campo input:hover { border-color: color-mix(in srgb, var(--go) 45%, var(--linea)); }
+  }
+  .campo input:focus { border-color: var(--go); background: var(--superficie); outline: none; box-shadow: 0 0 0 4px color-mix(in srgb, var(--go) 20%, transparent); }
+  .campo input[aria-invalid="true"] { border-color: var(--error); box-shadow: 0 0 0 4px color-mix(in srgb, var(--error) 18%, transparent); }
+
+  .operadores { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .operadores legend { float: left; width: 100%; }
+  .segmentos {
+    clear: both; position: relative; display: grid; grid-template-columns: repeat(4, 64px); gap: 6px; padding: 4px;
+    border-radius: 16px; background: var(--superficie-2); border: 1.5px solid var(--linea);
+  }
+  @media (max-width: 820px) { .segmentos { grid-template-columns: repeat(4, 1fr); } }
+  .segmentos .indicador {
+    position: absolute; top: 4px; left: 4px; height: 52px; width: calc((100% - 8px - 18px) / 4);
+    border-radius: 10px; background: var(--tinta); pointer-events: none;
+    transition: transform var(--t-indicador) var(--ease-in-out);
+  }
+  .segmentos input { position: absolute; opacity: 0; pointer-events: none; }
+  .segmentos label {
+    position: relative; z-index: 1; display: grid; place-items: center; height: 52px; border-radius: 10px; cursor: pointer;
+    font-size: 28px; font-weight: 600; color: var(--tinta-suave); user-select: none; touch-action: manipulation;
+    transition: color var(--t-estado) ease, transform var(--t-presion) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .segmentos input:not(:checked) + label:hover { color: var(--tinta); }
+  }
+  .segmentos label:active { transform: scale(.94); }
+  .segmentos input:checked + label { color: var(--superficie); }
+  .segmentos input:focus-visible + label { outline: 3px solid var(--go); outline-offset: 2px; }
+
+  .calcular {
+    min-height: 64px; min-width: 250px; padding: 0 28px; border: 0; border-radius: var(--radio); cursor: pointer;
+    background: var(--go); color: #04232c; font: 700 18px/1 var(--fuente); font-stretch: 105%;
+    display: inline-grid; place-items: center; touch-action: manipulation;
+    transition: transform var(--t-presion) var(--ease-out), filter var(--t-estado) ease;
+  }
+  @media (hover: hover) and (pointer: fine) { .calcular:hover { filter: brightness(1.06); } }
+  .calcular:active { transform: scale(.97); }
+  .calcular[aria-busy="true"] { cursor: progress; }
+  .calcular .capa { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 10px; transition: opacity var(--t-estado) ease, filter var(--t-estado) ease, transform var(--t-estado) var(--ease-out); }
+  .calcular .capa.ocupado { opacity: 0; filter: blur(4px); transform: translateY(6px); }
+  .calcular[aria-busy="true"] .capa.normal { opacity: 0; filter: blur(4px); transform: translateY(-6px); }
+  .calcular[aria-busy="true"] .capa.ocupado { opacity: 1; filter: none; transform: none; }
+  .calcular .giro { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent; animation: girar .55s linear infinite; }
+  @keyframes girar { to { transform: rotate(360deg); } }
+
+  /* animación del mensaje */
+  .carril { margin: 36px 0 8px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; }
+  .nodo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; line-height: 1.25; }
+  .nodo small { display: block; font-weight: 400; color: var(--tinta-suave); font-size: 13px; }
+  .nodo .icono {
+    position: relative; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--superficie-2); border: 1.5px solid var(--linea); color: var(--tinta); flex: none;
+  }
+  .nodo.servidor { flex-direction: row-reverse; text-align: right; }
+  .nodo.servidor .icono { background: var(--tinta); color: var(--superficie); border-color: var(--tinta); }
+  .via { position: relative; height: 64px; overflow: hidden; }
+  .via::before, .via::after { content: ""; position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed var(--linea); }
+  .via::before { top: 18px; }
+  .via::after { bottom: 18px; }
+  .via .rotulo { position: absolute; font-size: 12px; color: var(--tinta-suave); white-space: nowrap; }
+  .via .rotulo.ida { top: -2px; left: 4px; }
+  .via .rotulo.vuelta { bottom: -2px; right: 4px; }
+  .paquete {
+    position: absolute; left: 0; padding: 4px 10px; border-radius: 999px; font: 600 13px/1.2 var(--mono);
+    white-space: nowrap; opacity: 0; z-index: 1; pointer-events: none;
+  }
+  .paquete.ida { top: 6px; background: var(--go); color: #04232c; }
+  .paquete.vuelta { bottom: 6px; background: var(--respuesta); color: #2b1d00; }
+  .paquete.vuelta.fallo { background: var(--error); color: #fff; }
+  @media (max-width: 600px) {
+    .carril { grid-template-columns: 1fr 1fr; row-gap: 10px; }
+    .via { grid-column: 1 / -1; grid-row: 2; }
+    .nodo.servidor { grid-column: 2; grid-row: 1; }
+    .nodo small { display: none; }
+  }
+
+  /* resultado */
+  .resultado { margin-top: 20px; min-height: 120px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .resultado .expresion {
+    margin: 0; font-weight: 800; font-stretch: 125%; letter-spacing: -.035em; line-height: .95;
+    font-size: clamp(44px, 9vw, 112px); font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+    transition: color var(--t-estado) ease;
+  }
+  .resultado .expresion .igual { color: var(--tinta-suave); font-weight: 400; }
+  .resultado[data-estado="vacio"] .expresion { color: var(--linea); }
+  .resultado .detalle { margin: 12px 0 0; color: var(--tinta-suave); font-size: 15px; }
+  .resultado .detalle strong { color: var(--tinta); font-weight: 600; }
+  .resultado[data-estado="error"] .expresion { font-size: clamp(28px, 5vw, 52px); color: var(--error); letter-spacing: -.02em; font-stretch: 110%; }
+  .resultado[data-estado="error"] .detalle { color: var(--tinta); }
+
+  /* tráfico e historial */
+  .inferior { display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; margin: 24px 0 40px; }
+  @media (max-width: 900px) { .inferior { grid-template-columns: 1fr; } }
+  .seccion { background: var(--superficie); border-radius: 16px; border: 1px solid var(--linea); padding: 22px 24px; min-width: 0; }
+  @media (max-width: 600px) { .seccion { padding: 18px 16px; } }
+  .seccion h2 { margin: 0; font-size: 18px; font-weight: 700; font-stretch: 108%; letter-spacing: -.01em; }
+  .seccion .sub { margin: 4px 0 16px; color: var(--tinta-suave); font-size: 14px; max-width: 60ch; }
+  .cabeza { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .cabeza .total { font-size: 14px; color: var(--tinta-suave); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .trafico { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 600px) { .trafico { grid-template-columns: 1fr; } }
+  .mensaje { border-radius: var(--radio); background: var(--superficie-2); border: 1px solid var(--linea); overflow: hidden; min-width: 0; }
+  .mensaje .titulo { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--linea); }
+  .mensaje.solicitud .titulo { box-shadow: inset 4px 0 0 var(--go); }
+  .mensaje.respuesta .titulo { box-shadow: inset 4px 0 0 var(--respuesta); }
+  .mensaje .codigo { font: 600 12px/1 var(--mono); padding: 4px 7px; border-radius: 6px; background: var(--superficie); border: 1px solid var(--linea); transition: color var(--t-estado) ease; }
+  .mensaje .codigo.ok { color: var(--ok); }
+  .mensaje .codigo.mal { color: var(--error); }
+  .mensaje pre { margin: 0; padding: 12px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--tinta); min-height: 132px; }
+  .mensaje pre .k { color: var(--go-texto); }
+  .mensaje pre .n { color: var(--respuesta-texto); }
+  .mensaje pre .s { color: var(--ok); }
+  .mensaje pre.vacio { color: var(--tinta-suave); font-family: var(--fuente); font-size: 14px; }
+
+  .historial { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow-y: auto; }
+  .historial li { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 8px; margin: 0 -8px; border-top: 1px solid var(--linea); border-radius: 8px; }
+  .historial li:first-child { border-top-color: transparent; }
+  .historial .op { font-weight: 600; font-size: 17px; font-variant-numeric: tabular-nums; font-stretch: 105%; }
+  .historial .op .r { color: var(--ok); }
+  .historial .hora { font-size: 13px; color: var(--tinta-suave); font-variant-numeric: tabular-nums; text-align: right; }
+  .historial .origen { grid-column: 1 / -1; font-size: 13px; color: var(--tinta-suave); display: flex; align-items: center; gap: 6px; }
+  .historial .origen::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--respuesta); transition: background-color var(--t-estado) ease; }
+  .historial .origen.propia::before { background: var(--go); }
+  .vacio-historial { color: var(--tinta-suave); font-size: 15px; padding: 18px 0 6px; }
+  .vacio-historial code { color: var(--tinta); background: var(--superficie-2); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+  .pie-historial { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--linea); font-size: 13px; color: var(--tinta-suave); }
+  .pie-historial code { color: var(--tinta); }
+
+  .solo-lector { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* reducir movimiento */
+  @media (prefers-reduced-motion: reduce) {
+    .segmentos .indicador { transition: none; }
+    .calcular:active, .segmentos label:active { transform: none; }
+    .calcular .capa, .calcular .capa.ocupado, .calcular[aria-busy="true"] .capa.normal { transform: none; filter: none; }
+    .calcular .giro { animation-duration: 1.2s; }
+  }
+</style>
+</head>
+<body>
+<header class="contenedor">
+  <div class="marca">
+    <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+      <rect width="44" height="44" rx="12" fill="var(--go)"/>
+      <text x="22" y="28.5" text-anchor="middle" font-family="Archivo, sans-serif" font-weight="800" font-size="17" fill="#04232c" style="font-stretch:120%">Go</text>
+    </svg>
+    <div>
+      <h1>Calculadora distribuida</h1>
+      <p>Esta página no calcula nada: le pide cada resultado al servidor en Go.</p>
+    </div>
+  </div>
+  <div class="conexion" id="conexion" role="status" aria-live="polite">
+    <span class="luz" aria-hidden="true"></span><span id="conexion-texto">Buscando el servidor…</span>
+  </div>
+</header>
+
+<main class="contenedor">
+  <section class="banco" aria-labelledby="titulo-operacion">
+    <h2 id="titulo-operacion" class="solo-lector">Nueva operación</h2>
+    <form id="formulario" class="ecuacion" novalidate>
+      <div class="campo">
+        <label for="n1">Primer número</label>
+        <input id="n1" type="number" inputmode="decimal" step="any" value="15" required autocomplete="off">
+      </div>
+      <fieldset class="operadores">
+        <legend>Operación</legend>
+        <div class="segmentos" id="segmentos">
+          <span class="indicador" id="indicador" aria-hidden="true"></span>
+          <input type="radio" name="op" id="op-suma" value="+" checked><label for="op-suma" title="Sumar">+<span class="solo-lector"> sumar</span></label>
+          <input type="radio" name="op" id="op-resta" value="-"><label for="op-resta" title="Restar">−<span class="solo-lector"> restar</span></label>
+          <input type="radio" name="op" id="op-mult" value="*"><label for="op-mult" title="Multiplicar">×<span class="solo-lector"> multiplicar</span></label>
+          <input type="radio" name="op" id="op-div" value="/"><label for="op-div" title="Dividir">÷<span class="solo-lector"> dividir</span></label>
+        </div>
+      </fieldset>
+      <div class="campo">
+        <label for="n2">Segundo número</label>
+        <input id="n2" type="number" inputmode="decimal" step="any" value="7" required autocomplete="off">
+      </div>
+      <button class="calcular" id="calcular" type="submit" aria-busy="false">
+        <span class="capa normal">Calcular en el servidor</span>
+        <span class="capa ocupado" aria-hidden="true"><span class="giro"></span>Esperando al servidor</span>
+      </button>
+    </form>
+
+    <div class="carril" aria-hidden="true">
+      <div class="nodo cliente">
+        <span class="icono" id="icono-cliente">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </span>
+        <span>Este navegador<small>cliente</small></span>
+      </div>
+      <div class="via" id="via">
+        <span class="rotulo ida">POST /calcular</span>
+        <span class="rotulo vuelta">respuesta JSON</span>
+        <span class="paquete ida" id="paquete-ida"></span>
+        <span class="paquete vuelta" id="paquete-vuelta"></span>
+      </div>
+      <div class="nodo servidor">
+        <span class="icono" id="icono-servidor">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="7" rx="1.5"/><rect x="4" y="14" width="16" height="7" rx="1.5"/><path d="M8 6.5h.01M8 17.5h.01"/></svg>
+        </span>
+        <span>Servidor Go<small id="puerto">puerto 8080</small></span>
+      </div>
+    </div>
+
+    <div class="resultado" id="resultado" data-estado="vacio" aria-live="polite">
+      <p class="expresion" id="expresion">15 + 7 = ?</p>
+      <p class="detalle" id="detalle">Elige los números y la operación, y pulsa <strong>Calcular en el servidor</strong>.</p>
+    </div>
+  </section>
+
+  <div class="inferior">
+    <section class="seccion" aria-labelledby="titulo-trafico">
+      <h2 id="titulo-trafico">Lo que viajó por la red</h2>
+      <p class="sub">El mensaje HTTP que esta página envió al servidor y lo que el servidor contestó.</p>
+      <div class="trafico">
+        <div class="mensaje solicitud">
+          <div class="titulo"><span>Solicitud</span><span class="codigo">POST /calcular</span></div>
+          <pre id="pre-solicitud" class="vacio">Todavía no has enviado ninguna operación.</pre>
+        </div>
+        <div class="mensaje respuesta">
+          <div class="titulo"><span>Respuesta</span><span class="codigo" id="codigo-respuesta">sin respuesta</span></div>
+          <pre id="pre-respuesta" class="vacio">Aquí aparecerá el JSON que devuelva el servidor.</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="seccion" aria-labelledby="titulo-historial">
+      <div class="cabeza">
+        <h2 id="titulo-historial">Historial del servidor</h2>
+        <span class="total" id="total"></span>
+      </div>
+      <p class="sub">Lo comparten todos los clientes y se actualiza solo cada 2 segundos.</p>
+      <ul class="historial" id="historial"></ul>
+      <p class="pie-historial">El servidor protege esta lista con un <code>sync.Mutex</code>, porque cada solicitud llega en su propia goroutine.</p>
+    </section>
+  </div>
+</main>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const simbolo = { "+": "+", "-": "−", "*": "×", "/": "÷" };
+  const fmt = n => Number.isInteger(n) ? n.toLocaleString("es-CO") : Number(n.toFixed(10)).toLocaleString("es-CO", { maximumFractionDigits: 10 });
+
+  // animaciones
+  const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+  const EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)";
+  const reducido = matchMedia("(prefers-reduced-motion: reduce)");
+  const T_VIAJE = 520;
+  const T_SALIDA = 140;
+  const T_ENTRADA = 260;
+
+  function animar(el, cuadros, opciones) {
+    el.getAnimations().forEach(a => a.cancel());
+    return el.animate(cuadros, { fill: "forwards", ...opciones }).finished.catch(() => {});
+  }
+
+  async function cambiarContenido(el, aplicar) {
+    if (reducido.matches) {
+      await animar(el, [{ opacity: 1 }, { opacity: 0 }], { duration: 100, easing: "ease" });
+      aplicar();
+      return animar(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease" });
+    }
+    await animar(el, [{ opacity: 1, filter: "blur(0)", transform: "none" }, { opacity: 0, filter: "blur(4px)", transform: "translateY(-6px)" }], { duration: T_SALIDA, easing: EASE_OUT });
+    aplicar();
+    return animar(el, [{ opacity: 0, filter: "blur(4px)", transform: "translateY(8px)" }, { opacity: 1, filter: "blur(0)", transform: "none" }], { duration: T_ENTRADA, easing: EASE_OUT });
+  }
+
+  async function viajar(el, texto, haciaDerecha) {
+    const via = $("via");
+    el.textContent = texto;
+    const distancia = Math.max(0, via.clientWidth - el.offsetWidth);
+    const desde = haciaDerecha ? 0 : distancia, hasta = haciaDerecha ? distancia : 0;
+    if (reducido.matches) {
+      el.style.transform = `translateX(${hasta}px)`;
+      await animar(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease" });
+      return;
+    }
+    await animar(el, [
+      { transform: `translateX(${desde}px) scale(.96)`, opacity: 0 },
+      { transform: `translateX(${desde + (hasta - desde) * .08}px) scale(1)`, opacity: 1, offset: .12 },
+      { transform: `translateX(${hasta}px) scale(1)`, opacity: 1 }
+    ], { duration: T_VIAJE, easing: EASE_IN_OUT });
+  }
+
+  function limpiarPaquetes() {
+    ["paquete-ida", "paquete-vuelta"].forEach(id => {
+      const p = $(id);
+      if (getComputedStyle(p).opacity === "0") return;
+      animar(p, [{ opacity: getComputedStyle(p).opacity }, { opacity: 0 }], { duration: T_SALIDA, easing: "ease" });
+    });
+  }
+  addEventListener("resize", () => ["paquete-ida", "paquete-vuelta"].forEach(id => { $(id).getAnimations().forEach(a => a.cancel()); $(id).style.opacity = 0; }));
+
+  // selector de operación
+  const radios = [...document.querySelectorAll('input[name="op"]')];
+  const operador = () => radios.find(r => r.checked).value;
+  function moverIndicador() {
+    const i = radios.findIndex(r => r.checked);
+    $("indicador").style.transform = `translateX(calc(${i * 100}% + ${i * 6}px))`;
+  }
+  radios.forEach(r => r.addEventListener("change", () => { moverIndicador(); reiniciarResultado(); }));
+  moverIndicador();
+
+  function reiniciarResultado() {
+    if ($("resultado").dataset.estado !== "vacio") {
+      $("resultado").dataset.estado = "vacio";
+      $("detalle").innerHTML = "Pulsa <strong>Calcular en el servidor</strong> para enviar la nueva operación.";
+    }
+    vistaPrevia();
+  }
+  function vistaPrevia() {
+    if ($("resultado").dataset.estado !== "vacio") return;
+    const a = $("n1").value || "?", b = $("n2").value || "?";
+    $("expresion").textContent = `${a} ${simbolo[operador()]} ${b} = ?`;
+  }
+  ["n1", "n2"].forEach(id => $(id).addEventListener("input", () => {
+    $(id).setAttribute("aria-invalid", "false");
+    reiniciarResultado();
+  }));
+
+  function pintarJSON(obj) {
+    const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    return esc(JSON.stringify(obj, null, 2))
+      .replace(/"([^"]+)":/g, '<span class="k">"$1"</span>:')
+      .replace(/: (-?\d+(\.\d+)?(e[+-]?\d+)?)/g, ': <span class="n">$1</span>')
+      .replace(/: "([^"]*)"/g, ': <span class="s">"$1"</span>');
+  }
+
+  function sacudir(el) {
+    if (reducido.matches) return;
+    animar(el, [{ transform: "translateX(0)" }, { transform: "translateX(-5px)" }, { transform: "translateX(4px)" }, { transform: "translateX(-2px)" }, { transform: "translateX(0)" }], { duration: 280, easing: EASE_OUT, fill: "none" });
+  }
+
+  function ocupado(si) {
+    $("calcular").setAttribute("aria-busy", si ? "true" : "false");
+    $("calcular").disabled = si;
+  }
+
+  // enviar la operación al servidor
+  $("formulario").addEventListener("submit", async evento => {
+    evento.preventDefault();
+    if ($("calcular").disabled) return;
+    const n1 = $("n1"), n2 = $("n2");
+    const vacios = [n1, n2].filter(i => i.value.trim() === "");
+    [n1, n2].forEach(i => i.setAttribute("aria-invalid", vacios.includes(i) ? "true" : "false"));
+    if (vacios.length) {
+      vacios.forEach(sacudir);
+      mostrarError("Faltan números", "Escribe un valor en " + (vacios.length === 2 ? "los dos campos" : vacios[0] === n1 ? "el primer número" : "el segundo número") + " antes de calcular.");
+      vacios[0].focus();
+      return;
+    }
+
+    const cuerpo = { numero1: parseFloat(n1.value), numero2: parseFloat(n2.value), operador: operador() };
+    ocupado(true);
+    limpiarPaquetes();
+    $("paquete-vuelta").classList.remove("fallo");
+
+    cambiarContenido($("pre-solicitud"), () => {
+      $("pre-solicitud").classList.remove("vacio");
+      $("pre-solicitud").innerHTML = "Content-Type: application/json\n\n" + pintarJSON(cuerpo);
+    });
+
+    const inicio = performance.now();
+    const ida = viajar($("paquete-ida"), `${fmt(cuerpo.numero1)} ${simbolo[cuerpo.operador]} ${fmt(cuerpo.numero2)}`, true);
+    let respuesta, datos;
+    try {
+      respuesta = await fetch("/calcular", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
+      datos = await respuesta.json();
+    } catch (e) {
+      await ida;
+      limpiarPaquetes();
+      mostrarError("Sin conexión con el servidor", "Revisa que el servidor siga en ejecución con go run main.go y vuelve a intentarlo.");
+      cambiarContenido($("pre-respuesta"), () => { $("pre-respuesta").className = "vacio"; $("pre-respuesta").textContent = "No llegó ninguna respuesta."; });
+      $("codigo-respuesta").textContent = "sin respuesta"; $("codigo-respuesta").className = "codigo mal";
+      ocupado(false);
+      return;
+    }
+    const ms = Math.max(1, Math.round(performance.now() - inicio));
+
+    await ida;
+    tocar($("icono-servidor"));
+
+    cambiarContenido($("pre-respuesta"), () => {
+      $("pre-respuesta").classList.remove("vacio");
+      $("pre-respuesta").innerHTML = pintarJSON(datos);
+      $("codigo-respuesta").textContent = respuesta.status + (respuesta.ok ? " OK" : " Bad Request");
+      $("codigo-respuesta").className = "codigo " + (respuesta.ok ? "ok" : "mal");
+    });
+
+    const vuelta = $("paquete-vuelta");
+    if (respuesta.ok) {
+      pendientes.push(firma(datos));
+      await viajar(vuelta, "= " + fmt(datos.resultado), false);
+      tocar($("icono-cliente"));
+      mostrarResultado(datos, ms);
+    } else {
+      vuelta.classList.add("fallo");
+      await viajar(vuelta, "error " + respuesta.status, false);
+      tocar($("icono-cliente"));
+      const [titulo, consejo] = explicarError(datos.error);
+      mostrarError(titulo, `El servidor respondió con el código ${respuesta.status} y sigue funcionando. ${consejo}`);
+    }
+    ocupado(false);
+    cargarHistorial();
+  });
+
+  function tocar(icono) {
+    if (reducido.matches) {
+      animar(icono, [{ opacity: 1 }, { opacity: .6 }, { opacity: 1 }], { duration: 240, easing: "ease", fill: "none" });
+      return;
+    }
+    animar(icono, [{ transform: "scale(1)" }, { transform: "scale(.92)", offset: .3 }, { transform: "scale(1)" }], { duration: 300, easing: EASE_OUT, fill: "none" });
+    const anillo = document.createElement("span");
+    anillo.setAttribute("aria-hidden", "true");
+    Object.assign(anillo.style, { position: "absolute", inset: "-2px", borderRadius: "12px", border: "2px solid", borderColor: icono.id === "icono-servidor" ? "var(--go)" : "var(--respuesta)", pointerEvents: "none" });
+    icono.appendChild(anillo);
+    anillo.animate([{ transform: "scale(.95)", opacity: .9 }, { transform: "scale(1.45)", opacity: 0 }], { duration: 420, easing: EASE_OUT })
+      .finished.then(() => anillo.remove(), () => anillo.remove());
+  }
+
+  function explicarError(msg) {
+    if (/cero/.test(msg)) return ["No se puede dividir entre cero", "Cambia el segundo número y vuelve a calcular."];
+    if (/operador/.test(msg)) return ["Operación no válida", "Elige suma, resta, multiplicación o división."];
+    if (/grande/.test(msg)) return ["Resultado fuera de rango", "El resultado supera el número más grande que se puede representar; usa números más pequeños."];
+    if (/faltan/.test(msg)) return ["Faltan datos", "Escribe los dos números y elige una operación."];
+    return ["El servidor rechazó la operación", "Detalle: " + msg + "."];
+  }
+
+  function mostrarResultado(d, ms) {
+    const r = $("resultado");
+    cambiarContenido(r, () => {
+      r.dataset.estado = "ok";
+      $("expresion").innerHTML = `${fmt(d.numero1)} ${simbolo[d.operador]} ${fmt(d.numero2)} <span class="igual">=</span> ${fmt(d.resultado)}`;
+      $("detalle").innerHTML = `Calculado por el servidor en <strong>${ms} ms</strong> y guardado en el historial.`;
+    });
+  }
+
+  function mostrarError(titulo, detalle) {
+    const r = $("resultado");
+    cambiarContenido(r, () => {
+      r.dataset.estado = "error";
+      $("expresion").textContent = titulo;
+      $("detalle").textContent = detalle;
+    });
+  }
+
+  // historial
+  // operaciones enviadas desde esta pestaña
+  let propias = new Set();
+  try { propias = new Set(JSON.parse(sessionStorage.getItem("propias") || "[]")); } catch (e) {}
+  const guardarPropias = () => { try { sessionStorage.setItem("propias", JSON.stringify([...propias])); } catch (e) {} };
+  let pendientes = [];
+  const firma = r => `${r.numero1}|${r.operador}|${r.numero2}`;
+  const filas = new Map();
+
+  function crearFila(r) {
+    const li = document.createElement("li");
+    const hora = new Date(r.fecha).toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    li.innerHTML = `<span class="op">${fmt(r.numero1)} ${simbolo[r.operador]} ${fmt(r.numero2)} = <span class="r">${fmt(r.resultado)}</span></span>
+      <span class="hora">${hora}</span>
+      <span class="origen"></span>`;
+    return li;
+  }
+  function marcarOrigen(li, propia) {
+    const o = li.querySelector(".origen");
+    o.classList.toggle("propia", propia);
+    o.textContent = propia ? "Enviada desde esta página" : "Enviada por otro cliente";
+  }
+
+  let primeraCarga = true;
+  async function cargarHistorial() {
+    const con = $("conexion");
+    let registros;
+    try {
+      const resp = await fetch("/historial", { cache: "no-store" });
+      registros = await resp.json();
+      con.dataset.estado = "ok";
+      $("conexion-texto").textContent = "Conectado a " + location.host;
+    } catch (e) {
+      con.dataset.estado = "caido";
+      $("conexion-texto").textContent = "Servidor detenido: ejecuta go run main.go";
+      return;
+    }
+
+    pendientes = pendientes.filter(f => {
+      for (let i = registros.length - 1; i >= 0; i--) {
+        if (firma(registros[i]) === f && !propias.has(registros[i].fecha)) { propias.add(registros[i].fecha); guardarPropias(); return false; }
+      }
+      return true;
+    });
+
+    $("total").textContent = registros.length === 1 ? "1 operación" : registros.length + " operaciones";
+    const lista = $("historial");
+    if (registros.length === 0) {
+      filas.clear();
+      lista.innerHTML = '<li class="vacio-historial">Aún no hay operaciones. Haz la primera arriba, o envía una desde otra terminal con <code>go run ./cliente 8 / 2</code>.</li>';
+      primeraCarga = false;
+      return;
+    }
+    lista.querySelector(".vacio-historial")?.remove();
+
+    // solo agregar las filas nuevas
+    const nuevas = registros.filter(r => !filas.has(r.fecha));
+    nuevas.forEach((r, i) => {
+      const li = crearFila(r);
+      marcarOrigen(li, propias.has(r.fecha));
+      filas.set(r.fecha, li);
+      lista.prepend(li);
+      if (reducido.matches) return;
+      if (primeraCarga) {
+        const orden = nuevas.length - 1 - i;
+        if (orden < 8) li.animate([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: T_ENTRADA, delay: orden * 40, easing: EASE_OUT, fill: "backwards" });
+      } else {
+        li.animate([{ opacity: 0, transform: "translateY(-8px) scale(.98)" }, { opacity: 1, transform: "none" }], { duration: T_ENTRADA, easing: EASE_OUT });
+      }
+    });
+    if (!primeraCarga && !reducido.matches) nuevas.forEach(r => resaltar(filas.get(r.fecha)));
+    filas.forEach((li, fecha) => marcarOrigen(li, propias.has(fecha)));
+    primeraCarga = false;
+  }
+
+  function resaltar(li) {
+    const capa = document.createElement("span");
+    Object.assign(capa.style, { position: "absolute", inset: "0", borderRadius: "8px", background: "color-mix(in srgb, var(--respuesta) 22%, transparent)", pointerEvents: "none" });
+    capa.setAttribute("aria-hidden", "true");
+    li.prepend(capa);
+    capa.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 1200, easing: "ease-out" }).finished.then(() => capa.remove(), () => capa.remove());
+  }
+
+  vistaPrevia();
+  cargarHistorial();
+  setInterval(cargarHistorial, 2000);
+</script>
+</body>
+</html>

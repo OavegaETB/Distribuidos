@@ -1,0 +1,44 @@
+### Archivo para la extensión "REST Client" de VS Code.
+### Inicie el servidor (go run main.go) y haga clic en "Send Request".
+
+### Suma
+POST http://localhost:8080/calcular
+Content-Type: application/json
+
+{"numero1": 15, "numero2": 7, "operador": "+"}
+
+### División
+POST http://localhost:8080/calcular
+Content-Type: application/json
+
+{"numero1": 8, "numero2": 2, "operador": "/"}
+
+### División por cero (error 400)
+POST http://localhost:8080/calcular
+Content-Type: application/json
+
+{"numero1": 8, "numero2": 0, "operador": "/"}
+
+### Resultado fuera de rango (error 400)
+POST http://localhost:8080/calcular
+Content-Type: application/json
+
+{"numero1": 1e308, "numero2": 10, "operador": "*"}
+
+### Falta un campo (error 400)
+POST http://localhost:8080/calcular
+Content-Type: application/json
+
+{"numero1": 8, "operador": "/"}
+
+### Campo desconocido (error 400)
+POST http://localhost:8080/calcular
+Content-Type: application/json
+
+{"numero1": 1, "numero2": 2, "operador": "+", "extra": true}
+
+### Método GET en /calcular (error 405)
+GET http://localhost:8080/calcular
+
+### Historial
+GET http://localhost:8080/historial

@@ -1,0 +1,10 @@
+# Binarios
+calculadora
+calculadora.exe
+*.exe
+/cliente/cliente
+# Editores y sistema
+.vscode/
+.idea/
+.DS_Store
+~$*.docx
